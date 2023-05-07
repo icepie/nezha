@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/naiba/nezha/model"
 	"github.com/naiba/nezha/pkg/mygin"
-	"github.com/naiba/nezha/pkg/utils"
 	"github.com/naiba/nezha/service/singleton"
 )
 
@@ -49,14 +48,14 @@ func (ma *apiV1) addOrEditServer(c *gin.Context) {
 		s.HideForGuest = sf.HideForGuest == "on"
 
 		var ss model.Server
-		err = singleton.DB.Model(&model.Server{}).Where("name = ?", s.Name).First(&ss).Error
-		if err == nil {
+		e := singleton.DB.Model(&model.Server{}).Where("name = ?", s.Name).First(&ss).Error
+		if e == nil {
 			s.ID = ss.ID
 		}
 
-		if s.Secret == "" {
-			s.Secret, _ = utils.GenerateRandomString(18)
-		}
+		// if s.Secret == "" {
+		// 	s.Secret, _ = utils.GenerateRandomString(18)
+		// }
 
 		if s.ID == 0 {
 
