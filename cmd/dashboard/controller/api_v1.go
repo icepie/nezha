@@ -30,7 +30,7 @@ func (v *apiV1) serve() {
 	}))
 	r.GET("/server/list", v.serverList)
 	r.GET("/server/details", v.serverDetails)
-	r.POST("/server/refresh", v.addOrEditServer)
+	r.POST("/server/add", v.addOrEditServer)
 
 }
 
@@ -47,11 +47,23 @@ func (ma *apiV1) addOrEditServer(c *gin.Context) {
 		s.Tag = sf.Tag
 		s.Note = sf.Note
 		s.HideForGuest = sf.HideForGuest == "on"
+
+		var ss model.Server
+		err = singleton.DB.Model(&model.Server{}).Where("name = ?", s.Name).First(&ss).Error
+		if err == nil {
+			s.ID = ss.ID
+		}
+
+		if s.Secret == "" {
+			s.Secret, _ = utils.GenerateRandomString(18)
+		}
+
 		if s.ID == 0 {
-			s.Secret, err = utils.GenerateRandomString(18)
+
 			if err == nil {
 				err = singleton.DB.Create(&s).Error
 			}
+
 		} else {
 			isEdit = true
 			err = singleton.DB.Save(&s).Error
