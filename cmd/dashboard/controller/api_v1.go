@@ -1,11 +1,16 @@
 package controller
 
 import (
-	"github.com/gin-gonic/gin"
-	"github.com/naiba/nezha/pkg/mygin"
-	"github.com/naiba/nezha/service/singleton"
+	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/naiba/nezha/model"
+	"github.com/naiba/nezha/pkg/mygin"
+	"github.com/naiba/nezha/pkg/utils"
+	"github.com/naiba/nezha/service/singleton"
 )
 
 type apiV1 struct {
@@ -25,7 +30,86 @@ func (v *apiV1) serve() {
 	}))
 	r.GET("/server/list", v.serverList)
 	r.GET("/server/details", v.serverDetails)
+	r.POST("/server/refresh", v.addOrEditServer)
 
+}
+
+func (ma *apiV1) addOrEditServer(c *gin.Context) {
+	var sf serverForm
+	var s model.Server
+	var isEdit bool
+	err := c.ShouldBindJSON(&sf)
+	if err == nil {
+		s.Name = sf.Name
+		s.Secret = sf.Secret
+		s.DisplayIndex = sf.DisplayIndex
+		s.ID = sf.ID
+		s.Tag = sf.Tag
+		s.Note = sf.Note
+		s.HideForGuest = sf.HideForGuest == "on"
+		if s.ID == 0 {
+			s.Secret, err = utils.GenerateRandomString(18)
+			if err == nil {
+				err = singleton.DB.Create(&s).Error
+			}
+		} else {
+			isEdit = true
+			err = singleton.DB.Save(&s).Error
+		}
+	}
+	if err != nil {
+		c.JSON(http.StatusOK, model.Response{
+			Code:    http.StatusBadRequest,
+			Message: fmt.Sprintf("请求错误：%s", err),
+		})
+		return
+	}
+	if isEdit {
+		singleton.ServerLock.Lock()
+		s.CopyFromRunningServer(singleton.ServerList[s.ID])
+		// 如果修改了 Secret
+		if s.Secret != singleton.ServerList[s.ID].Secret {
+			// 删除旧 Secret-ID 绑定关系
+			singleton.SecretToID[s.Secret] = s.ID
+			// 设置新的 Secret-ID 绑定关系
+			delete(singleton.SecretToID, singleton.ServerList[s.ID].Secret)
+		}
+		// 如果修改了Tag
+		oldTag := singleton.ServerList[s.ID].Tag
+		newTag := s.Tag
+		if newTag != oldTag {
+			index := -1
+			for i := 0; i < len(singleton.ServerTagToIDList[oldTag]); i++ {
+				if singleton.ServerTagToIDList[oldTag][i] == s.ID {
+					index = i
+					break
+				}
+			}
+			if index > -1 {
+				// 删除旧 Tag-ID 绑定关系
+				singleton.ServerTagToIDList[oldTag] = append(singleton.ServerTagToIDList[oldTag][:index], singleton.ServerTagToIDList[oldTag][index+1:]...)
+				if len(singleton.ServerTagToIDList[oldTag]) == 0 {
+					delete(singleton.ServerTagToIDList, oldTag)
+				}
+			}
+			// 设置新的 Tag-ID 绑定关系
+			singleton.ServerTagToIDList[newTag] = append(singleton.ServerTagToIDList[newTag], s.ID)
+		}
+		singleton.ServerList[s.ID] = &s
+		singleton.ServerLock.Unlock()
+	} else {
+		s.Host = &model.Host{}
+		s.State = &model.HostState{}
+		singleton.ServerLock.Lock()
+		singleton.SecretToID[s.Secret] = s.ID
+		singleton.ServerList[s.ID] = &s
+		singleton.ServerTagToIDList[s.Tag] = append(singleton.ServerTagToIDList[s.Tag], s.ID)
+		singleton.ServerLock.Unlock()
+	}
+	singleton.ReSortServer()
+	c.JSON(http.StatusOK, model.Response{
+		Code: http.StatusOK,
+	})
 }
 
 // serverList 获取服务器列表 不传入Query参数则获取全部
