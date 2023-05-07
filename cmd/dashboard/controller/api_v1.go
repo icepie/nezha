@@ -30,7 +30,7 @@ func (v *apiV1) serve() {
 	}))
 	r.GET("/server/list", v.serverList)
 	r.GET("/server/details", v.serverDetails)
-	r.POST("/server/refresh", v.addOrEditServer)
+	r.POST("/server/edit", v.addOrEditServer)
 
 }
 
